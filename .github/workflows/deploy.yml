@@ -33,20 +33,20 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile --filter @kcp/forum
+        run: pnpm install --frozen-lockfile
 
-      - name: Build forum
-        run: pnpm --filter @kcp/forum build
+      - name: Build
+        run: pnpm build
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
 
       - name: Add .nojekyll
-        run: touch apps/forum/dist/.nojekyll
+        run: touch dist/.nojekyll
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: apps/forum/dist
+          path: dist
 
   deploy:
     needs: build
