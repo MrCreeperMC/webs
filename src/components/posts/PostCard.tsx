@@ -4,21 +4,11 @@ import type { Post } from '../../types/post'
 import { Badge } from '../ui/Badge'
 import { MediaRenderer, MediaTypeIcon } from '../media/MediaRenderer'
 import { categories } from '../../data/categories'
+import { timeAgo } from '../../utils/time'
 
 interface PostCardProps {
   post: Post
   variant?: 'standard' | 'featured' | 'compact'
-}
-
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 60) return `${mins}m ago`
-  const hours = Math.floor(mins / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  if (days < 30) return `${days}d ago`
-  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 function formatViews(n: number): string {
@@ -31,42 +21,55 @@ const categoryColor = (id: string) => categories.find((c) => c.id === id)?.color
 export function PostCard({ post, variant = 'standard' }: PostCardProps) {
   if (variant === 'featured') {
     return (
-      <Link
-        to={`/post/${post.id}`}
-        className="group relative flex flex-col md:flex-row gap-6 p-6 rounded-2xl glass card-hover"
-      >
-        {post.media && (
-          <div className="md:w-1/2 aspect-video rounded-xl overflow-hidden shrink-0">
-            <MediaRenderer
-              media={post.media}
-              className="w-full h-full"
-            />
+      <div className="p-px bg-gradient-to-r from-accent/60 via-accent/20 to-transparent rounded-3xl">
+        <Link
+          to={`/post/${post.id}`}
+          className="group relative flex flex-col md:flex-row gap-6 p-6 rounded-[23px] glass card-hover"
+        >
+          {post.media && (
+            <div className="md:w-1/2 aspect-video rounded-xl overflow-hidden shrink-0">
+              <MediaRenderer media={post.media} className="w-full h-full" />
+            </div>
+          )}
+          <div className="flex flex-col justify-center min-w-0">
+            <div className="flex items-center gap-2 mb-2">
+              <Badge variant="accent">Featured</Badge>
+              <span
+                className="text-xs font-medium px-2 py-0.5 rounded-full"
+                style={{
+                  backgroundColor: categoryColor(post.category) + '20',
+                  color: categoryColor(post.category),
+                }}
+              >
+                {post.category}
+              </span>
+            </div>
+            <h2 className="text-2xl font-bold mb-2 group-hover:text-accent transition-colors line-clamp-2">
+              {post.title}
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-3 line-clamp-3">
+              {post.description}
+            </p>
+            <div className="flex items-center gap-4 text-xs text-gray-400 flex-wrap">
+              <span className="font-medium text-gray-700 dark:text-gray-300">
+                {post.author.name}
+              </span>
+              <span className="flex items-center gap-1">
+                <Clock className="w-3 h-3" aria-hidden />
+                {timeAgo(post.createdAt)}
+              </span>
+              <span className="flex items-center gap-1">
+                <Eye className="w-3 h-3" aria-hidden />
+                {formatViews(post.views)}
+              </span>
+              <span className="flex items-center gap-1">
+                <MessageCircle className="w-3 h-3" aria-hidden />
+                {post.comments}
+              </span>
+            </div>
           </div>
-        )}
-        <div className="flex flex-col justify-center min-w-0">
-          <div className="flex items-center gap-2 mb-2">
-            <Badge variant="accent">Featured</Badge>
-            <span
-              className="text-xs font-medium px-2 py-0.5 rounded-full"
-              style={{ backgroundColor: categoryColor(post.category) + '20', color: categoryColor(post.category) }}
-            >
-              {post.category}
-            </span>
-          </div>
-          <h2 className="text-2xl font-bold mb-2 group-hover:text-accent transition-colors line-clamp-2">
-            {post.title}
-          </h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-3 line-clamp-3">
-            {post.description}
-          </p>
-          <div className="flex items-center gap-4 text-xs text-gray-400">
-            <span className="font-medium text-gray-700 dark:text-gray-300">{post.author.name}</span>
-            <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{timeAgo(post.createdAt)}</span>
-            <span className="flex items-center gap-1"><Eye className="w-3 h-3" />{formatViews(post.views)}</span>
-            <span className="flex items-center gap-1"><MessageCircle className="w-3 h-3" />{post.comments}</span>
-          </div>
-        </div>
-      </Link>
+        </Link>
+      </div>
     )
   }
 
@@ -96,7 +99,7 @@ export function PostCard({ post, variant = 'standard' }: PostCardProps) {
   return (
     <Link
       to={`/post/${post.id}`}
-      className="group flex flex-col rounded-2xl glass card-hover overflow-hidden"
+      className="group flex flex-col rounded-2xl glass card-hover overflow-hidden hover:ring-1 hover:ring-accent/30 hover:shadow-lg hover:shadow-accent/10"
     >
       {post.media && (
         <div className="aspect-video relative overflow-hidden">
@@ -112,7 +115,10 @@ export function PostCard({ post, variant = 'standard' }: PostCardProps) {
         <div className="flex items-center gap-2 mb-2">
           <span
             className="text-xs font-medium px-2 py-0.5 rounded-full"
-            style={{ backgroundColor: categoryColor(post.category) + '20', color: categoryColor(post.category) }}
+            style={{
+              backgroundColor: categoryColor(post.category) + '20',
+              color: categoryColor(post.category),
+            }}
           >
             {post.category}
           </span>
@@ -129,15 +135,31 @@ export function PostCard({ post, variant = 'standard' }: PostCardProps) {
           {post.description}
         </p>
         <div className="flex items-center justify-between text-xs text-gray-400 pt-3 border-t border-gray-100 dark:border-white/5">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-full bg-accent/20 flex items-center justify-center text-accent text-xs font-bold">
-              {post.author.name[0]}
-            </div>
-            <span className="font-medium text-gray-600 dark:text-gray-300">{post.author.name}</span>
+          <div className="flex items-center gap-2 min-w-0">
+            {post.author.avatar ? (
+              <img
+                src={post.author.avatar}
+                alt=""
+                className="w-6 h-6 rounded-full object-cover shrink-0"
+              />
+            ) : (
+              <span className="w-6 h-6 rounded-full bg-accent/20 flex items-center justify-center text-accent text-xs font-bold shrink-0">
+                {post.author.name[0]?.toUpperCase()}
+              </span>
+            )}
+            <span className="font-medium text-gray-600 dark:text-gray-300 truncate">
+              {post.author.name}
+            </span>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="flex items-center gap-1"><Eye className="w-3.5 h-3.5" />{formatViews(post.views)}</span>
-            <span className="flex items-center gap-1"><MessageCircle className="w-3.5 h-3.5" />{post.comments}</span>
+          <div className="flex items-center gap-3 shrink-0">
+            <span className="flex items-center gap-1">
+              <Eye className="w-3.5 h-3.5" aria-hidden />
+              {formatViews(post.views)}
+            </span>
+            <span className="flex items-center gap-1">
+              <MessageCircle className="w-3.5 h-3.5" aria-hidden />
+              {post.comments}
+            </span>
           </div>
         </div>
       </div>

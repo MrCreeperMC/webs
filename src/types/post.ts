@@ -11,6 +11,7 @@ export interface Post {
   title: string
   description: string
   author: Author
+  authorId?: string
   createdAt: string
   updatedAt?: string
   category: string

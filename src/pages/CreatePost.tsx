@@ -1,7 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Upload, X, Image, Video, FileText, ArrowLeft, Save } from 'lucide-react'
+import { Upload, X, ArrowLeft, Save, FileText } from 'lucide-react'
 import { contentService } from '../services/contentService'
+import { uploadMedia } from '../services/mediaService'
+import { isSupabaseConfigured } from '../lib/supabase'
+import { useAuth } from '../context/AuthContext'
 import { categories } from '../data/categories'
 import { Button } from '../components/ui/Button'
 import type { Post } from '../types/post'
@@ -14,7 +17,6 @@ interface FormData {
   mediaType: 'image' | 'video' | 'none'
   mediaUrl: string
   mediaCaption: string
-  authorName: string
 }
 
 const INITIAL: FormData = {
@@ -25,19 +27,23 @@ const INITIAL: FormData = {
   mediaType: 'none',
   mediaUrl: '',
   mediaCaption: '',
-  authorName: '',
 }
+
+const LOCAL_IMAGE_MAX = 1.5 * 1024 * 1024
 
 export default function CreatePost({ editMode = false }: { editMode?: boolean }) {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
+  const { profile } = useAuth()
   const [form, setForm] = useState<FormData>(INITIAL)
-  const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>({})
+  const [errors, setErrors] = useState<Partial<Record<keyof FormData | 'form', string>>>({})
   const [saving, setSaving] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [uploading, setUploading] = useState(false)
 
-  useState(() => {
+  useEffect(() => {
     if (editMode && id) {
       contentService.getPost(id).then((post) => {
         if (post) {
@@ -46,16 +52,15 @@ export default function CreatePost({ editMode = false }: { editMode?: boolean })
             description: post.description,
             category: post.category,
             tags: post.tags.join(', '),
-            mediaType: post.mediaType === 'none' ? 'none' : (post.mediaType as 'image' | 'video'),
-            mediaUrl: post.media?.url || '',
-            mediaCaption: post.mediaCaption || post.media?.caption || '',
-            authorName: post.author.name,
+            mediaType: post.mediaType === 'none' ? 'none' : post.mediaType,
+            mediaUrl: post.media?.url ?? '',
+            mediaCaption: post.mediaCaption ?? post.media?.caption ?? '',
           })
           if (post.media?.url) setPreviewUrl(post.media.url)
         }
       })
     }
-  })
+  }, [editMode, id])
 
   const set = (field: keyof FormData, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }))
@@ -63,13 +68,17 @@ export default function CreatePost({ editMode = false }: { editMode?: boolean })
   }
 
   const validate = (): boolean => {
-    const errs: Partial<Record<keyof FormData, string>> = {}
+    const errs: Partial<Record<keyof FormData | 'form', string>> = {}
     if (!form.title.trim()) errs.title = 'Title is required'
     if (form.title.length > 200) errs.title = 'Title must be under 200 characters'
     if (!form.description.trim()) errs.description = 'Description is required'
     if (!form.category) errs.category = 'Select a category'
-    if (!form.authorName.trim()) errs.authorName = 'Author name is required'
-    if (form.mediaUrl && !isValidUrl(form.mediaUrl)) errs.mediaUrl = 'Enter a valid URL'
+    if (form.mediaUrl && !isValidUrl(form.mediaUrl)) {
+      errs.mediaUrl = 'Enter a valid URL (must start with http/https)'
+    }
+    if (form.mediaCaption && form.mediaType === 'none' && !form.mediaUrl) {
+      errs.mediaCaption = 'Add media first, or remove the caption'
+    }
     setErrors(errs)
     return Object.keys(errs).length === 0
   }
@@ -78,26 +87,57 @@ export default function CreatePost({ editMode = false }: { editMode?: boolean })
     e.preventDefault()
     if (!validate()) return
     setSaving(true)
-
-    const postData: Omit<Post, 'id' | 'createdAt' | 'views' | 'comments'> = {
-      title: form.title.trim(),
-      description: form.description.trim(),
-      author: { name: form.authorName.trim() },
-      category: form.category,
-      tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),
-      mediaType: form.mediaType,
-      mediaCaption: form.mediaCaption.trim() || undefined,
-      media: form.mediaUrl
-        ? {
-            type: form.mediaType === 'video' ? 'video' : 'image',
-            url: form.mediaUrl,
-            alt: form.title.trim(),
-            caption: form.mediaCaption.trim() || undefined,
-          }
-        : undefined,
-    }
+    setErrors((prev) => ({ ...prev, form: undefined }))
 
     try {
+      let mediaUrl = form.mediaUrl.trim()
+      let mediaType: Post['mediaType'] = form.mediaType
+
+      // A newly selected file takes precedence over any URL.
+      if (selectedFile) {
+        if (isSupabaseConfigured) {
+          setUploading(true)
+          const uploaded = await uploadMedia(selectedFile)
+          mediaUrl = uploaded.url
+          mediaType = uploaded.type
+          setUploading(false)
+        } else if (selectedFile.type.startsWith('image/') && selectedFile.size <= LOCAL_IMAGE_MAX) {
+          mediaUrl = await fileToDataUrl(selectedFile)
+          mediaType = 'image'
+        } else {
+          throw new Error(
+            'Persistent uploads need the Supabase backend connected. Locally only images up to 1.5 MB are supported.'
+          )
+        }
+      } else if (mediaUrl) {
+        mediaType = inferType(mediaUrl, form.mediaType)
+      } else {
+        mediaType = 'none'
+      }
+
+      const postData: Omit<Post, 'id' | 'createdAt' | 'views' | 'comments'> = {
+        title: form.title.trim(),
+        description: form.description.trim(),
+        author: { name: profile?.displayName ?? 'Unknown' },
+        authorId: profile?.id,
+        category: form.category,
+        tags: form.tags
+          .split(',')
+          .map((t) => t.trim())
+          .filter(Boolean),
+        mediaType,
+        mediaCaption: form.mediaCaption.trim() || undefined,
+        media:
+          mediaUrl && mediaType !== 'none'
+            ? {
+                type: mediaType,
+                url: mediaUrl,
+                alt: form.title.trim(),
+                caption: form.mediaCaption.trim() || undefined,
+              }
+            : undefined,
+      }
+
       if (editMode && id) {
         await contentService.updatePost(id, postData)
         navigate(`/post/${id}`)
@@ -105,20 +145,45 @@ export default function CreatePost({ editMode = false }: { editMode?: boolean })
         const newPost = await contentService.createPost(postData)
         navigate(`/post/${newPost.id}`)
       }
+    } catch (err) {
+      setErrors((prev) => ({
+        ...prev,
+        form: err instanceof Error ? err.message : 'Failed to save the post.',
+      }))
     } finally {
       setSaving(false)
+      setUploading(false)
     }
   }
 
   const handleFile = (file: File) => {
-    if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
-      setErrors((prev) => ({ ...prev, mediaUrl: 'Unsupported file type. Use an image or video.' }))
+    const isImage = file.type.startsWith('image/')
+    const isVideo = file.type.startsWith('video/')
+    if (!isImage && !isVideo) {
+      setErrors((prev) => ({
+        ...prev,
+        mediaUrl: 'Unsupported file type. Use an image (JPEG/PNG/GIF/WebP) or video (MP4/WebM).',
+      }))
       return
     }
-    const url = URL.createObjectURL(file)
-    setPreviewUrl(url)
-    set('mediaUrl', url)
-    set('mediaType', file.type.startsWith('video/') ? 'video' : 'image')
+    if (isSupabaseConfigured) {
+      if (file.size > 50 * 1024 * 1024) {
+        setErrors((prev) => ({ ...prev, mediaUrl: 'File is too large. Maximum size is 50 MB.' }))
+        return
+      }
+    } else if (!isImage || file.size > LOCAL_IMAGE_MAX) {
+      setErrors((prev) => ({
+        ...prev,
+        mediaUrl: 'Connecting Supabase enables uploads of videos and larger files.',
+      }))
+      return
+    }
+
+    setSelectedFile(file)
+    setPreviewUrl(URL.createObjectURL(file))
+    set('mediaType', isVideo ? 'video' : 'image')
+    set('mediaUrl', '')
+    setErrors((prev) => ({ ...prev, mediaUrl: undefined }))
   }
 
   const handleDrop = (e: React.DragEvent) => {
@@ -129,6 +194,8 @@ export default function CreatePost({ editMode = false }: { editMode?: boolean })
   }
 
   const removePreview = () => {
+    if (selectedFile) URL.revokeObjectURL(previewUrl ?? '')
+    setSelectedFile(null)
     setPreviewUrl(null)
     set('mediaUrl', '')
     set('mediaType', 'none')
@@ -148,18 +215,14 @@ export default function CreatePost({ editMode = false }: { editMode?: boolean })
         {editMode ? 'Update your post details.' : 'Share something with the community.'}
       </p>
 
-      {!editMode && (
-        <div className="mb-6 p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/30 text-sm text-amber-800 dark:text-amber-300">
-          <strong>Demo mode:</strong> Posts are saved to your browser's localStorage.
-          Connect a backend (Supabase, Firebase) for persistent storage and real file uploads.
-        </div>
-      )}
-
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Title */}
         <div>
-          <label className="block text-sm font-medium mb-1.5">Title *</label>
+          <label htmlFor="post-title" className="block text-sm font-medium mb-1.5">
+            Title *
+          </label>
           <input
+            id="post-title"
             type="text"
             value={form.title}
             onChange={(e) => set('title', e.target.value)}
@@ -175,41 +238,38 @@ export default function CreatePost({ editMode = false }: { editMode?: boolean })
 
         {/* Description */}
         <div>
-          <label className="block text-sm font-medium mb-1.5">Description *</label>
+          <label htmlFor="post-description" className="block text-sm font-medium mb-1.5">
+            Description *
+          </label>
           <textarea
+            id="post-description"
             value={form.description}
             onChange={(e) => set('description', e.target.value)}
             placeholder="Write your post content..."
             rows={6}
             className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-accent/50 text-sm resize-y"
           />
-          {errors.description && <p className="text-xs text-red-500 mt-1">{errors.description}</p>}
-        </div>
-
-        {/* Author */}
-        <div>
-          <label className="block text-sm font-medium mb-1.5">Author Name *</label>
-          <input
-            type="text"
-            value={form.authorName}
-            onChange={(e) => set('authorName', e.target.value)}
-            placeholder="Your name"
-            className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-accent/50 text-sm"
-          />
-          {errors.authorName && <p className="text-xs text-red-500 mt-1">{errors.authorName}</p>}
+          {errors.description && (
+            <p className="text-xs text-red-500 mt-1">{errors.description}</p>
+          )}
         </div>
 
         {/* Category */}
         <div>
-          <label className="block text-sm font-medium mb-1.5">Category *</label>
+          <label htmlFor="post-category" className="block text-sm font-medium mb-1.5">
+            Category *
+          </label>
           <select
+            id="post-category"
             value={form.category}
             onChange={(e) => set('category', e.target.value)}
             className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-accent/50 text-sm"
           >
             <option value="">Select a category</option>
             {categories.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
             ))}
           </select>
           {errors.category && <p className="text-xs text-red-500 mt-1">{errors.category}</p>}
@@ -217,8 +277,11 @@ export default function CreatePost({ editMode = false }: { editMode?: boolean })
 
         {/* Tags */}
         <div>
-          <label className="block text-sm font-medium mb-1.5">Tags</label>
+          <label htmlFor="post-tags" className="block text-sm font-medium mb-1.5">
+            Tags
+          </label>
           <input
+            id="post-tags"
             type="text"
             value={form.tags}
             onChange={(e) => set('tags', e.target.value)}
@@ -229,20 +292,30 @@ export default function CreatePost({ editMode = false }: { editMode?: boolean })
 
         {/* Media URL */}
         <div>
-          <label className="block text-sm font-medium mb-1.5">Media URL (optional)</label>
+          <label htmlFor="post-media-url" className="block text-sm font-medium mb-1.5">
+            Media URL (optional)
+          </label>
           <input
+            id="post-media-url"
             type="url"
             value={form.mediaUrl}
-            onChange={(e) => { set('mediaUrl', e.target.value); if (previewUrl) setPreviewUrl(null) }}
+            onChange={(e) => {
+              set('mediaUrl', e.target.value)
+              if (previewUrl && !selectedFile) setPreviewUrl(null)
+            }}
             placeholder="https://example.com/image.jpg"
-            className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-accent/50 text-sm"
+            disabled={Boolean(selectedFile)}
+            className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-accent/50 text-sm disabled:opacity-50"
           />
           {errors.mediaUrl && <p className="text-xs text-red-500 mt-1">{errors.mediaUrl}</p>}
         </div>
 
         {/* Drag & drop */}
         <div
-          onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+          onDragOver={(e) => {
+            e.preventDefault()
+            setDragOver(true)
+          }}
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
           className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
@@ -259,46 +332,54 @@ export default function CreatePost({ editMode = false }: { editMode?: boolean })
               <input
                 type="file"
                 className="hidden"
-                accept="image/*,video/*"
+                accept="image/jpeg,image/png,image/gif,image/webp,image/avif,video/mp4,video/webm"
                 onChange={(e) => {
                   const f = e.target.files?.[0]
                   if (f) handleFile(f)
+                  e.target.value = ''
                 }}
               />
             </label>
           </p>
-          <p className="text-xs text-gray-400">Files are stored locally in your browser for this demo.</p>
+          <p className="text-xs text-gray-400">
+            {isSupabaseConfigured
+              ? 'Files are uploaded to permanent cloud storage. Max 50 MB.'
+              : 'Connect Supabase for permanent uploads. Local mode supports images up to 1.5 MB.'}
+          </p>
         </div>
 
         {/* Preview */}
-        {previewUrl && (
-          <div className="relative rounded-xl overflow-hidden animate-scale-in">
-            {form.mediaType === 'video' ? (
-              <video src={previewUrl} controls className="w-full max-h-64 object-cover" />
-            ) : (
-              <img src={previewUrl} alt="Preview" className="w-full max-h-64 object-cover" />
-            )}
-            <button
-              onClick={removePreview}
-              className="absolute top-2 right-2 p-1.5 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
-              aria-label="Remove media"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+        {(previewUrl || form.mediaUrl) && !selectedFile && form.mediaUrl && (
+          <MediaPreview url={form.mediaUrl} type={form.mediaType} onRemove={removePreview} />
+        )}
+        {selectedFile && previewUrl && (
+          <MediaPreview url={previewUrl} type={form.mediaType} onRemove={removePreview} />
         )}
 
         {/* Media caption */}
         <div>
-          <label className="block text-sm font-medium mb-1.5">Media Caption</label>
+          <label htmlFor="post-caption" className="block text-sm font-medium mb-1.5">
+            Media caption
+          </label>
           <input
+            id="post-caption"
             type="text"
             value={form.mediaCaption}
             onChange={(e) => set('mediaCaption', e.target.value)}
-            placeholder="Optional caption for the media"
+            placeholder="Optional caption shown under the media"
             className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-accent/50 text-sm"
+            maxLength={300}
           />
+          {errors.mediaCaption && (
+            <p className="text-xs text-red-500 mt-1">{errors.mediaCaption}</p>
+          )}
         </div>
+
+        {errors.form && (
+          <p className="text-sm text-red-500 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/40 rounded-lg px-3 py-2">
+            {errors.form}
+          </p>
+        )}
 
         {/* Submit */}
         <div className="flex justify-end gap-3 pt-4">
@@ -307,10 +388,10 @@ export default function CreatePost({ editMode = false }: { editMode?: boolean })
           </Button>
           <Button
             type="submit"
-            loading={saving}
+            loading={saving || uploading}
             icon={editMode ? <Save className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
           >
-            {editMode ? 'Save Changes' : 'Publish Post'}
+            {uploading ? 'Uploading…' : editMode ? 'Save Changes' : 'Publish Post'}
           </Button>
         </div>
       </form>
@@ -318,6 +399,54 @@ export default function CreatePost({ editMode = false }: { editMode?: boolean })
   )
 }
 
+function MediaPreview({
+  url,
+  type,
+  onRemove,
+}: {
+  url: string
+  type: 'image' | 'video' | 'none'
+  onRemove: () => void
+}) {
+  return (
+    <div className="relative rounded-xl overflow-hidden animate-scale-in">
+      {type === 'video' ? (
+        <video src={url} controls className="w-full max-h-64 object-cover" />
+      ) : (
+        <img src={url} alt="Preview" className="w-full max-h-64 object-cover" />
+      )}
+      <button
+        onClick={onRemove}
+        className="absolute top-2 right-2 p-1.5 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
+        aria-label="Remove media"
+        type="button"
+      >
+        <X className="w-4 h-4" />
+      </button>
+    </div>
+  )
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(new Error('Could not read the file.'))
+    reader.readAsDataURL(file)
+  })
+}
+
 function isValidUrl(str: string): boolean {
-  try { new URL(str); return true } catch { return false }
+  try {
+    const u = new URL(str)
+    return u.protocol === 'http:' || u.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+function inferType(url: string, fallback: 'image' | 'video' | 'none'): 'image' | 'video' | 'none' {
+  if (/\.mp4|\.webm|\.mov/i.test(url)) return 'video'
+  if (/\.jpe?g|\.png|\.gif|\.webp|\.avif|\.svg|\.webp/i.test(url)) return 'image'
+  return fallback
 }

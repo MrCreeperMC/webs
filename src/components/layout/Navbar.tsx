@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { Search, Plus, Sun, Moon, Menu, X } from 'lucide-react'
+import { useAuth } from '../../context/AuthContext'
+import { UserMenu, MobileAuthLinks } from './UserMenu'
 
 interface NavbarProps {
   theme: 'dark' | 'light'
@@ -13,9 +15,11 @@ export function Navbar({ theme, onToggleTheme }: NavbarProps) {
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchInput, setSearchInput] = useState('')
   const location = useLocation()
+  const { isAdmin } = useAuth()
 
   useEffect(() => {
     const handler = () => setScrolled(window.scrollY > 20)
+    handler()
     window.addEventListener('scroll', handler, { passive: true })
     return () => window.removeEventListener('scroll', handler)
   }, [])
@@ -41,12 +45,14 @@ export function Navbar({ theme, onToggleTheme }: NavbarProps) {
     }
   }
 
+  const isActive = (path: string) => location.pathname === path
+
   return (
     <nav
-      className={`fixed top-0 left-0 right-0 z-40 transition-all duration-300 ${
+      className={`fixed top-0 left-0 right-0 z-40 transition-all duration-300 border-b ${
         scrolled
-          ? 'glass-strong shadow-lg shadow-black/5 dark:shadow-black/20'
-          : 'bg-transparent'
+          ? 'glass-strong shadow-lg shadow-black/5 dark:shadow-black/20 border-white/10 dark:border-white/5'
+          : 'glass border-white/5 dark:border-white/[0.03]'
       }`}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -65,13 +71,18 @@ export function Navbar({ theme, onToggleTheme }: NavbarProps) {
               <Link
                 key={link.to}
                 to={link.to}
-                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  location.pathname === link.to
-                    ? 'text-accent bg-accent/10'
-                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10'
+                className={`relative px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  isActive(link.to)
+                    ? 'text-accent'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
                 }`}
               >
                 {link.label}
+                <span
+                  className={`absolute left-3 right-3 -bottom-0.5 h-0.5 rounded-full bg-accent transition-transform duration-200 ${
+                    isActive(link.to) ? 'scale-x-100' : 'scale-x-0'
+                  }`}
+                />
               </Link>
             ))}
           </div>
@@ -85,12 +96,16 @@ export function Navbar({ theme, onToggleTheme }: NavbarProps) {
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
                   placeholder="Search posts..."
-                  className="w-56 px-3 py-1.5 text-sm rounded-lg bg-gray-100 dark:bg-white/10 border border-gray-200 dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-accent/50"
+                  className="w-56 px-3 py-1.5 text-sm rounded-lg bg-white/60 dark:bg-white/10 border border-gray-200 dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-accent/50"
                   autoFocus
+                  aria-label="Search posts"
                 />
                 <button
                   type="button"
-                  onClick={() => { setSearchOpen(false); setSearchInput('') }}
+                  onClick={() => {
+                    setSearchOpen(false)
+                    setSearchInput('')
+                  }}
                   className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/10 text-gray-500"
                   aria-label="Close search"
                 >
@@ -115,13 +130,17 @@ export function Navbar({ theme, onToggleTheme }: NavbarProps) {
               {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             </button>
 
-            <Link
-              to="/create"
-              className="flex items-center gap-2 px-4 py-2 bg-accent text-white text-sm font-medium rounded-xl hover:bg-accent-dark transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              Create Post
-            </Link>
+            <UserMenu />
+
+            {isAdmin && (
+              <Link
+                to="/create"
+                className="flex items-center gap-2 px-4 py-2 bg-accent text-white text-sm font-medium rounded-xl hover:bg-accent-dark transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                New Post
+              </Link>
+            )}
           </div>
 
           {/* Mobile menu button */}
@@ -137,6 +156,7 @@ export function Navbar({ theme, onToggleTheme }: NavbarProps) {
               onClick={() => setMobileOpen(!mobileOpen)}
               className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/10 text-gray-500"
               aria-label="Toggle menu"
+              aria-expanded={mobileOpen}
             >
               {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
@@ -154,7 +174,8 @@ export function Navbar({ theme, onToggleTheme }: NavbarProps) {
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 placeholder="Search posts..."
-                className="w-full px-3 py-2 text-sm rounded-lg bg-gray-100 dark:bg-white/10 border border-gray-200 dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-accent/50"
+                className="w-full px-3 py-2 text-sm rounded-lg bg-white/60 dark:bg-white/10 border border-gray-200 dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-accent/50"
+                aria-label="Search posts"
               />
             </form>
             {navLinks.map((link) => (
@@ -162,7 +183,7 @@ export function Navbar({ theme, onToggleTheme }: NavbarProps) {
                 key={link.to}
                 to={link.to}
                 className={`block px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  location.pathname === link.to
+                  isActive(link.to)
                     ? 'text-accent bg-accent/10'
                     : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/10'
                 }`}
@@ -170,13 +191,16 @@ export function Navbar({ theme, onToggleTheme }: NavbarProps) {
                 {link.label}
               </Link>
             ))}
-            <Link
-              to="/create"
-              className="flex items-center gap-2 px-3 py-2 mt-2 bg-accent text-white text-sm font-medium rounded-xl hover:bg-accent-dark transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              Create Post
-            </Link>
+            <MobileAuthLinks />
+            {isAdmin && (
+              <Link
+                to="/create"
+                className="flex items-center justify-center gap-2 px-3 py-2 mt-2 bg-accent text-white text-sm font-medium rounded-xl hover:bg-accent-dark transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                New Post
+              </Link>
+            )}
           </div>
         </div>
       )}

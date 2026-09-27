@@ -1,162 +1,136 @@
 # KCP Forum
 
-A modern community forum and news platform built with React, TypeScript, and Tailwind CSS. Deployable to GitHub Pages as a fully static site.
+A modern community forum and news platform built with React, TypeScript, and Tailwind CSS, backed by Supabase (auth, database, media storage) and deployed to GitHub Pages.
 
 ## Features
 
+- **Accounts**: register / login (Supabase Auth, email + password)
+- **Admin gating**: only admins can create, edit, and delete posts (enforced in the database via Row Level Security)
+- **Comments**: any logged-in user can comment; owners and admins can delete
+- **Persistent data**: posts, comments, and media files live in Supabase — not in the browser
 - Responsive feed with featured, latest, and popular posts
-- Full-text search across titles, descriptions, tags, authors, and categories
-- Category browsing and filtering
-- Media type filtering (image, video, text-only)
-- Sort by newest, oldest, or popularity
-- Create, edit, and delete posts (localStorage)
-- Drag & drop media upload with preview
-- Image lightbox
-- Video player with controls
-- Dark/light theme with system preference detection
-- Skeleton loading states
-- Empty and error states
-- Smooth animations (respects `prefers-reduced-motion`)
-- SEO-friendly with meta tags, robots.txt, and sitemap.xml
-- Accessible (semantic HTML, keyboard nav, ARIA labels)
+- Client-side search (title, description, tags, author, category)
+- Category and media-type filters, sort by newest/oldest/popularity
+- Drag & drop media upload (images/videos, max 50 MB) to cloud storage
+- Image lightbox, HTML5 video player with poster
+- Dark/light theme with system preference detection and localStorage persistence
+- Skeleton loaders, empty states, form validation, character counters
+- Smooth animations that respect `prefers-reduced-motion`
+- SEO basics: meta tags, Open Graph, robots.txt, sitemap.xml, favicon
 - GitHub Actions deployment workflow
 
-## Tech Stack
+## Tech stack
 
-- **React 18** with TypeScript
-- **Vite** for building
-- **Tailwind CSS** for styling
-- **React Router** for client-side routing (HashRouter for GitHub Pages)
-- **Lucide React** for icons
+- **React 18** + **TypeScript** + **Vite**
+- **Tailwind CSS** (dark mode via `class`)
+- **React Router 6** (HashRouter — works on GitHub Pages without server config)
+- **Supabase** — Auth, PostgreSQL, Storage
+- **Lucide React** icons
 
-## Installation
+## Local development
 
 ```bash
-# From the monorepo root
-pnpm install --filter @kcp/forum
-
-# Or from apps/forum
-cd apps/forum
 pnpm install
+pnpm dev          # http://localhost:5173
 ```
 
-## Development
+Without `.env`, the app runs in **localStorage demo mode** (mock posts, local-only writes) — useful for UI work.
+
+### Production build
 
 ```bash
-pnpm --filter @kcp/forum dev
+pnpm build
+pnpm preview
 ```
 
-Opens at `http://localhost:5173`.
+## Supabase setup (persistent data + accounts)
 
-## Production Build
+The app reads two environment variables. When they are present it uses Supabase; when absent it falls back to localStorage.
 
-```bash
-pnpm --filter @kcp/forum build
-pnpm --filter @kcp/forum preview
-```
+1. Create a free account at [supabase.com](https://supabase.com) → **New project**.
+2. Open **SQL Editor** → run [`supabase/schema.sql`](supabase/schema.sql) (tables, RLS policies, triggers, storage bucket), then [`supabase/seed.sql`](supabase/seed.sql) (demo posts + comments).
+3. In **Project Settings → API**, copy the **Project URL** and **anon public key**.
+4. Create a local `.env` (see [`.env.example`](.env.example)):
 
-## GitHub Pages Deployment
+   ```bash
+   VITE_SUPABASE_URL=https://YOUR-REF.supabase.co
+   VITE_SUPABASE_ANON_KEY=your-anon-key
+   ```
 
-### Setup
+5. Recommended dashboard tweaks:
+   - **Authentication → Email**: disable *Confirm email* (simplest for a HashRouter site), and set **Site URL** to `https://mrcreepermc.github.io/webs/`.
+6. Register your account on the site, then in **Table Editor → profiles** set your row's `role` to `admin`. You can now publish, edit, and delete posts.
 
-1. Push this repository to GitHub
-2. Go to **Settings > Pages**
-3. Set **Source** to **GitHub Actions**
-4. The workflow in `.github/workflows/deploy.yml` handles the rest
+### Make yourself admin
 
-### Configuring the base path
+Only users with `role = 'admin'` can post. To promote an account:
 
-The Vite config reads `GITHUB_REPOSITORY` from the environment to set the base path automatically. If deploying to `https://USERNAME.github.io/REPOSITORY/`, the base will be `/REPOSITORY/`.
+1. Register on the site.
+2. Supabase Dashboard → **Table Editor** → `profiles` → find your row → set `role` = `admin`.
 
-For a **custom domain**, set `base: '/'` in `vite.config.ts` and remove the environment variable logic.
+There is intentionally no self-serve admin path; roles can only be changed from the dashboard (enforced by a database trigger).
 
-### .nojekyll
+## GitHub Pages deployment
 
-The workflow adds a `.nojekyll` file to the build output so GitHub Pages doesn't ignore files starting with underscores.
+1. Push this repo to GitHub.
+2. Repo **Settings → Pages → Source**: select **GitHub Actions**.
+3. Repo **Settings → Secrets and variables → Actions**, add:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+4. Push to `main` — [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) installs, builds (with the secrets), and deploys.
 
-## Project Structure
+The Vite `base` path is derived from `GITHUB_REPOSITORY`, so the site works at `https://USERNAME.github.io/REPOSITORY/`. For a **custom domain**, set `base: '/'` in `vite.config.ts` and add a `CNAME` file in `public/`.
 
-```
-apps/forum/
-  src/
-    components/
-      layout/       Navbar, Footer
-      media/        MediaRenderer, Lightbox
-      posts/        PostCard
-      ui/           Badge, Button, EmptyState, Modal, Skeleton
-    pages/          Home, Explore, Post, CreatePost, Categories, About
-    services/       contentService, storageService
-    hooks/          useTheme, usePosts, useSearch
-    data/           mockPosts, categories
-    types/          post.ts
-    App.tsx
-    main.tsx
-    index.css
-  public/           favicon, robots.txt, sitemap.xml
-  .github/workflows/deploy.yml
-```
-
-## localStorage Implementation
-
-Posts are stored in `localStorage` under the key `kcp-forum:posts`. On first load, mock data is seeded. All CRUD operations read from and write to localStorage through `contentService.ts`.
-
-## Replacing the Content Service
-
-The `contentService.ts` file is the single abstraction layer between the UI and data. To connect a real backend, replace the function implementations without changing any UI components.
-
-### Supabase Example
-
-```typescript
-// services/contentService.ts
-import { createClient } from '@supabase/supabase-js'
-
-const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_KEY)
-
-export const contentService = {
-  async getPosts() {
-    const { data } = await supabase.from('posts').select('*').order('created_at', { ascending: false })
-    return data ?? []
-  },
-  async getPost(id: string) {
-    const { data } = await supabase.from('posts').select('*').eq('id', id).single()
-    return data ?? undefined
-  },
-  // ... createPost, updatePost, deletePost
-}
-```
-
-### Firebase Example
-
-Replace the Supabase calls with Firebase Firestore or Realtime Database queries.
-
-### Custom REST API
-
-Replace with `fetch` or `axios` calls to your API endpoints.
-
-## Future Backend Architecture
+## Project structure
 
 ```
-Frontend (React)
+src/
+  components/
+    auth/        RequireAdmin route guard
+    comments/    CommentSection / CommentItem / CommentForm
+    layout/      Navbar, Footer, UserMenu
+    media/       MediaRenderer, Lightbox
+    posts/       PostCard (+ skeletons)
+    ui/          Badge, Button, EmptyState, Modal, Skeleton
+  context/       AuthContext (session, profile, isAdmin)
+  data/          mockPosts (demo mode), categories config
+  hooks/         useTheme, usePosts, useSearch
+  lib/           supabase client
+  pages/         Home, Explore, Post, CreatePost, Auth, Categories, About
+  services/      contentService (facade), local/Supabase implementations,
+                 commentService, mediaService, storageService
+  types/         post, comment
+  utils/         time helpers
+supabase/        schema.sql, seed.sql
+```
+
+### Content service architecture
+
+```
+UI (pages/hooks)
   ↓
-API / Content Service (contentService.ts)
-  ↓
-Authentication (Supabase Auth / Clerk / Auth0)
-  ↓
-Database (Supabase PostgreSQL / Firebase Firestore)
-  ↓
-Object Storage (Supabase Storage / S3 / Cloudflare R2)
+contentService.ts        ← facade, picks implementation at build time
+  ├─ localContentService   (localStorage — demo mode, no .env)
+  └─ supabaseContentService (Postgres — production)
 ```
 
-### Environment Variables
+Swapping to another backend (Firebase, custom REST) only means writing one more implementation of the `ContentService` interface in `src/services/types.ts` — no UI changes.
 
-When connecting a backend, create a `.env` file:
+## Data model
 
-```bash
-VITE_SUPABASE_URL=your-url
-VITE_SUPABASE_KEY=your-anon-key
-```
+- `profiles` — id, display_name, avatar_url, role (`user`/`admin`); auto-created by trigger on signup
+- `posts` — title, description, category, tags[], media (type/url/alt/caption), views, comments counter, featured
+- `comments` — post_id, author_id, content; a trigger keeps `posts.comments` in sync
+- Storage bucket `post-media` — public, 50 MB limit, admin-only writes (RLS on `storage.objects`)
 
-Vite exposes `VITE_*` variables to the client bundle.
+## Security notes
+
+- All writes are enforced by PostgreSQL **Row Level Security**, not just hidden buttons:
+  - posts: admin-only insert/update/delete
+  - comments: authenticated insert as self; delete own or admin
+  - roles: cannot be changed by regular users (trigger)
+- The anon key in the frontend is safe to expose — RLS is the real boundary.
+- Authentication and permissions should be extended if a richer role system is needed later.
 
 ## License
 

@@ -1,7 +1,7 @@
 import type { Post } from '../types/post'
 
 const PLACEHOLDER = 'data:image/svg+xml,' + encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" fill="%23374151"><rect width="800" height="450" rx="12"/><text x="400" y="225" font-family="system-ui" font-size="20" fill="%239ca3af" text-anchor="middle" dominant-baseline="middle">No Image</text></svg>'
+  '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" fill="#374151"><rect width="800" height="450" rx="12"/><text x="400" y="225" font-family="system-ui" font-size="20" fill="#9ca3af" text-anchor="middle" dominant-baseline="middle">No Image</text></svg>'
 )
 
 export const mockPosts: Post[] = [

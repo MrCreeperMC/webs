@@ -53,27 +53,69 @@ export default function Explore() {
         )}
       </div>
 
-      {/* Filters */}
+      {/* Category pills */}
+      <div
+        className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1 mb-4"
+        role="group"
+        aria-label="Filter by category"
+      >
+        <button
+          onClick={() => setCategoryFilter('')}
+          className={`px-3.5 py-1.5 rounded-full text-sm font-medium whitespace-nowrap border transition-all ${
+            categoryFilter === ''
+              ? 'bg-accent/10 border-accent/50 text-accent'
+              : 'bg-white dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-white/20'
+          }`}
+          aria-pressed={categoryFilter === ''}
+        >
+          All
+        </button>
+        {categories.map((cat) => {
+          const active = categoryFilter === cat.id
+          return (
+            <button
+              key={cat.id}
+              onClick={() => setCategoryFilter(active ? '' : cat.id)}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-sm font-medium whitespace-nowrap border transition-all"
+              style={
+                active
+                  ? {
+                      backgroundColor: cat.color + '18',
+                      borderColor: cat.color + '60',
+                      color: cat.color,
+                    }
+                  : undefined
+              }
+              aria-pressed={active}
+            >
+              <span
+                className="w-2 h-2 rounded-full"
+                style={{ backgroundColor: cat.color }}
+                aria-hidden
+              />
+              <span
+                className={
+                  active ? '' : 'text-gray-600 dark:text-gray-400'
+                }
+              >
+                {cat.name}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Sort / type filters */}
       <div className="flex flex-wrap items-center gap-3 mb-6">
         <div className="flex items-center gap-1.5 text-sm text-gray-500">
-          <SlidersHorizontal className="w-4 h-4" /> Filters:
+          <SlidersHorizontal className="w-4 h-4" aria-hidden /> Filters:
         </div>
-
-        <select
-          value={categoryFilter}
-          onChange={(e) => setCategoryFilter(e.target.value)}
-          className="px-3 py-1.5 text-sm rounded-lg bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-accent/50"
-        >
-          <option value="">All Categories</option>
-          {categories.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
 
         <select
           value={mediaFilter}
           onChange={(e) => setMediaFilter(e.target.value as MediaTypeFilter)}
           className="px-3 py-1.5 text-sm rounded-lg bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-accent/50"
+          aria-label="Filter by media type"
         >
           <option value="all">All Types</option>
           <option value="image">Images</option>
@@ -85,6 +127,7 @@ export default function Explore() {
           value={sort}
           onChange={(e) => setSort(e.target.value as SortOption)}
           className="px-3 py-1.5 text-sm rounded-lg bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-accent/50"
+          aria-label="Sort posts"
         >
           <option value="newest">Newest First</option>
           <option value="oldest">Oldest First</option>
